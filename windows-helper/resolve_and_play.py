@@ -9,7 +9,8 @@ import urllib.error
 import urllib.request
 
 
-# Combined formats only: the projector cannot merge separate video/audio URLs.
+# Prefer combined formats: the projector cannot merge separate video/audio URLs.
+# Separate fallbacks are included only so the helper can report that limitation.
 # 720p is preferred to keep the RK3128 decoder and network path comfortable.
 FORMAT_SELECTOR = (
     "b[vcodec^=avc1][acodec^=mp4a][height<=720][ext=mp4]/"
@@ -19,7 +20,9 @@ FORMAT_SELECTOR = (
     "b[vcodec^=avc1][height<=720]/"
     "b[vcodec^=avc1][height<=1080]/"
     "b[height<=720][vcodec!*=av01][vcodec!*=vp9]/"
-    "b[height<=1080][vcodec!*=av01][vcodec!*=vp9]"
+    "b[height<=1080][vcodec!*=av01][vcodec!*=vp9]/"
+    "bv*[vcodec^=avc1][height<=720]+ba[acodec^=mp4a]/"
+    "bv*[vcodec^=avc1][height<=1080]+ba[acodec^=mp4a]"
 )
 
 
