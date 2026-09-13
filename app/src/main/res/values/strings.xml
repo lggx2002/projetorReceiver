@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Projector Receiver</string>
+    <string name="connection_eyebrow">LOCAL NETWORK PLAYER</string>
+    <string name="connection_title">Projector Receiver</string>
+    <string name="connection_subtitle">Play a stream directly on this projector.</string>
+    <string name="stream_url_label">STREAM URL</string>
+    <string name="stream_url_hint">rtsp://192.168.1.20:8554/live</string>
+    <string name="connect">Connect</string>
+    <string name="remember_auto_connect">Automatically connect on startup</string>
+    <string name="auto_connect_help">Use the last saved stream URL when the app opens.</string>
+    <string name="status_ready">Ready to connect</string>
+    <string name="status_invalid_url">Enter an RTSP URL to continue.</string>
+    <string name="status_invalid_scheme">Enter an RTSP, HLS, DASH, or HTTP(S) stream URL.</string>
+    <string name="server_ready">Ready</string>
+    <string name="server_starting">Starting control server…</string>
+    <string name="server_endpoint_unavailable">Control URL unavailable</string>
+    <string name="server_network_unavailable">IP unavailable — connect the projector to Wi-Fi or Ethernet.</string>
+    <string name="server_ip_port">IP: %1$s  •  Port: %2$d</string>
+    <string name="player_connecting">Connecting…</string>
+</resources>

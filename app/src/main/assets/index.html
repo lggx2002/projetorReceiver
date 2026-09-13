@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Projector Receiver</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0b0d10; --panel:#15191e; --line:#313a44; --text:#f3f5f7; --muted:#9ca6b2; --accent:#b9f55d; }
+    * { box-sizing:border-box; }
+    body { margin:0; padding:28px 16px 48px; background:var(--bg); color:var(--text); font:15px system-ui,-apple-system,Segoe UI,sans-serif; }
+    main { width:min(720px,100%); margin:auto; }
+    h1 { margin:0 0 6px; font-size:28px; }
+    .lede { margin:0 0 26px; color:var(--muted); }
+    label { display:block; margin:16px 0 7px; color:var(--muted); font-size:12px; font-weight:700; letter-spacing:.12em; }
+    input, textarea { width:100%; border:1px solid var(--line); border-radius:9px; background:var(--panel); color:var(--text); padding:12px; font:inherit; }
+    input:focus, textarea:focus { outline:2px solid var(--accent); outline-offset:1px; }
+    textarea { min-height:88px; resize:vertical; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:13px; }
+    button { border:0; border-radius:8px; padding:11px 16px; background:var(--accent); color:#152008; cursor:pointer; font:600 14px inherit; }
+    button.secondary { background:#252c34; color:var(--text); }
+    button:active { transform:translateY(1px); }
+    .actions, .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+    .row input { flex:1 1 180px; width:auto; }
+    .panel { margin-top:24px; padding:16px; border:1px solid var(--line); border-radius:10px; background:var(--panel); }
+    dl { display:grid; grid-template-columns:110px 1fr; gap:8px 12px; margin:0; }
+    dt { color:var(--muted); } dd { margin:0; overflow-wrap:anywhere; }
+    #state { color:var(--accent); font-weight:700; text-transform:uppercase; }
+    #error { color:#ff9a8c; }
+    .hint { color:var(--muted); font-size:12px; margin:7px 0 0; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Projector Receiver</h1>
+  <p class="lede">Local network control</p>
+
+  <label for="url">STREAM URL</label>
+  <input id="url" type="url" spellcheck="false" placeholder="https://.../movie.m3u8">
+
+  <label for="headers">OPTIONAL HTTP HEADERS</label>
+  <textarea id="headers" spellcheck="false" placeholder="Referer: https://example.com/&#10;User-Agent: Mozilla/5.0&#10;Cookie: session=..."></textarea>
+  <p class="hint">One header per line. These are sent to the stream host.</p>
+
+  <div class="actions" style="margin-top:16px">
+    <button onclick="play()">Play</button>
+    <button class="secondary" onclick="command('/pause')">Pause</button>
+    <button class="secondary" onclick="command('/resume')">Resume</button>
+    <button class="secondary" onclick="command('/stop')">Stop</button>
+  </div>
+
+  <label for="seek">SEEK (MILLISECONDS)</label>
+  <div class="row">
+    <input id="seek" type="number" min="0" step="1000" placeholder="3600000">
+    <button class="secondary" onclick="seek()">Seek</button>
+  </div>
+
+  <label for="volume">VOLUME (0.0–1.0)</label>
+  <div class="row">
+    <input id="volume" type="number" min="0" max="1" step="0.05" value="1">
+    <button class="secondary" onclick="setVolume()">Set volume</button>
+  </div>
+
+  <section class="panel">
+    <dl>
+      <dt>Status</dt><dd id="state">Connecting…</dd>
+      <dt>Current URL</dt><dd id="currentUrl">—</dd>
+      <dt>Position</dt><dd id="position">—</dd>
+      <dt>Duration</dt><dd id="duration">—</dd>
+      <dt>Buffered</dt><dd id="buffered">—</dd>
+      <dt>Video</dt><dd id="video">—</dd>
+      <dt>Decoder</dt><dd id="decoder">—</dd>
+      <dt>Error</dt><dd id="error">—</dd>
+    </dl>
+  </section>
+</main>
+<script>
+  const $ = id => document.getElementById(id);
+  function parseHeaders() {
+    const result = {};
+    $('headers').value.split(/\r?\n/).forEach(line => {
+      const split = line.indexOf(':');
+      if (split > 0) result[line.slice(0, split).trim()] = line.slice(split + 1).trim();
+    });
+    return result;
+  }
+  async function request(path, body) {
+    const options = { method:'POST', headers:{'Content-Type':'application/json'} };
+    if (body) options.body = JSON.stringify(body);
+    const response = await fetch(path, options);
+    if (!response.ok) throw new Error((await response.text()) || response.statusText);
+    await refresh();
+  }
+  function command(path) { request(path).catch(showError); }
+  function play() { request('/play', {url:$('url').value, headers:parseHeaders()}).catch(showError); }
+  function seek() { request('/seek', {positionMs:Number($('seek').value)}).catch(showError); }
+  function setVolume() { request('/volume', {volume:Number($('volume').value)}).catch(showError); }
+  function showError(error) { $('error').textContent = error.message || error; }
+  function time(ms) {
+    if (!Number.isFinite(ms) || ms < 0) return '—';
+    const seconds = Math.floor(ms / 1000), h = Math.floor(seconds / 3600), m = Math.floor(seconds % 3600 / 60), s = seconds % 60;
+    return (h ? h + ':' : '') + String(m).padStart(h ? 2 : 1, '0') + ':' + String(s).padStart(2, '0') + ' (' + ms + ' ms)';
+  }
+  async function refresh() {
+    try {
+      const response = await fetch('/status', {cache:'no-store'});
+      const status = await response.json();
+      $('state').textContent = status.state || 'unknown';
+      $('currentUrl').textContent = status.url || '—';
+      $('position').textContent = time(status.positionMs);
+      $('duration').textContent = time(status.durationMs);
+      $('buffered').textContent = time(status.bufferedMs);
+      $('video').textContent = status.videoWidth ? status.videoWidth + ' × ' + status.videoHeight : '—';
+      $('decoder').textContent = status.decoder || '—';
+      $('error').textContent = status.error || '—';
+      if (status.url && !$('url').value) $('url').value = status.url;
+    } catch (error) { $('state').textContent = 'offline'; showError(error); }
+  }
+  refresh();
+  setInterval(refresh, 1500);
+</script>
+</body>
+</html>
