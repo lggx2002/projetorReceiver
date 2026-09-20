@@ -13,6 +13,11 @@ import java.net.Socket
 import java.net.SocketException
 import java.nio.charset.StandardCharsets
 import java.util.UUID
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.ThreadFactory
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 
 class ControlServer(
     private val context: Context,
@@ -22,11 +27,15 @@ class ControlServer(
     @Volatile private var serverSocket: ServerSocket? = null
     private var serverThread: Thread? = null
     private val controlToken: String by lazy { loadOrCreateToken() }
+    @Volatile private var requestExecutor: ThreadPoolExecutor? = null
 
     fun start() {
         synchronized(this) {
             if (running || serverThread?.isAlive == true) return
-            serverThread = Thread(::runServer, "ProjectorReceiver-ControlServer").apply {
+            running = true
+            val executor = createRequestExecutor()
+            requestExecutor = executor
+            serverThread = Thread({ runServer(executor) }, "ProjectorReceiver-ControlServer").apply {
                 isDaemon = true
                 start()
             }
@@ -34,6 +43,7 @@ class ControlServer(
     }
 
     fun stop() {
+        val executor: ThreadPoolExecutor?
         synchronized(this) {
             running = false
             try {
@@ -43,7 +53,10 @@ class ControlServer(
             }
             serverSocket = null
             serverThread = null
+            executor = requestExecutor
+            requestExecutor = null
         }
+        executor?.shutdownNow()
     }
 
     fun isRunning(): Boolean = running
@@ -53,18 +66,29 @@ class ControlServer(
         return "http://$ip:$PORT"
     }
 
-    private fun runServer() {
+    private fun runServer(executor: ThreadPoolExecutor) {
+        var boundSocket: ServerSocket? = null
         try {
             ServerSocket(PORT, 16, InetAddress.getByName("0.0.0.0")).use { socket ->
-                serverSocket = socket
-                running = true
+                boundSocket = socket
+                synchronized(this) {
+                    if (!running || requestExecutor !== executor) return@use
+                    serverSocket = socket
+                }
                 Log.i(TAG, "Control server listening on 0.0.0.0:$PORT")
                 while (running) {
                     try {
                         val client = socket.accept()
-                        Thread({ handleClient(client) }, "ProjectorReceiver-HttpRequest").apply {
-                            isDaemon = true
-                            start()
+                        if (!running || executor.isShutdown) {
+                            client.close()
+                            continue
+                        }
+                        try {
+                            executor.execute { handleClient(client) }
+                        } catch (_: RejectedExecutionException) {
+                            // The bounded pool is full. Close the connection instead of
+                            // creating unbounded threads and risking memory pressure.
+                            client.close()
                         }
                     } catch (_: SocketException) {
                         if (running) Log.e(TAG, "Control server accept failed")
@@ -72,13 +96,36 @@ class ControlServer(
                 }
             }
         } catch (error: Exception) {
-            running = false
+            synchronized(this) {
+                if (requestExecutor === executor) running = false
+            }
             Log.e(TAG, "Control server could not start on port $PORT", error)
         } finally {
-            serverSocket = null
-            running = false
+            synchronized(this) {
+                if (serverSocket === boundSocket) serverSocket = null
+                if (requestExecutor === executor) {
+                    requestExecutor = null
+                    executor.shutdown()
+                }
+                if (serverThread === Thread.currentThread()) {
+                    serverThread = null
+                    running = false
+                }
+            }
         }
     }
+
+    private fun createRequestExecutor(): ThreadPoolExecutor = ThreadPoolExecutor(
+        MAX_REQUEST_THREADS,
+        MAX_REQUEST_THREADS,
+        0L,
+        TimeUnit.MILLISECONDS,
+        ArrayBlockingQueue(MAX_QUEUED_REQUESTS),
+        ThreadFactory { runnable ->
+            Thread(runnable, "ProjectorReceiver-HttpRequest").apply { isDaemon = true }
+        },
+        ThreadPoolExecutor.AbortPolicy()
+    )
 
     private fun handleClient(socket: Socket) {
         socket.use { client ->
@@ -339,6 +386,8 @@ class ControlServer(
         private const val MAX_HEADERS = 64
         private const val MAX_LINE_BYTES = 16 * 1024
         private const val MAX_BODY_BYTES = 1024 * 1024
+        private const val MAX_REQUEST_THREADS = 4
+        private const val MAX_QUEUED_REQUESTS = 12
         private const val TOKEN_PREFS = "projector_receiver_control"
         private const val TOKEN_KEY = "control_token"
     }

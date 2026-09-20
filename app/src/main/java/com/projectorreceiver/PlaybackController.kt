@@ -25,6 +25,7 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.PlayerView
+import java.lang.ref.WeakReference
 import java.util.Locale
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -67,7 +68,7 @@ class PlaybackController(private val appContext: Context) {
     private val uiListeners = CopyOnWriteUiListeners()
 
     private var player: ExoPlayer? = null
-    private var attachedPlayerView: PlayerView? = null
+    private var attachedPlayerView: WeakReference<PlayerView>? = null
     private var retryRunnable: Runnable? = null
     private var retryAttempt = 0
     private var retryScheduled = false
@@ -90,7 +91,8 @@ class PlaybackController(private val appContext: Context) {
     @Volatile private var snapshotVideoHeight = 0
 
     fun play(context: Context, request: PlayRequest) {
-        mainHandler.post { playOnMain(context, request) }
+        val launchContext = context.applicationContext ?: appContext
+        mainHandler.post { playOnMain(launchContext, request) }
     }
 
     fun pause() {
@@ -112,9 +114,10 @@ class PlaybackController(private val appContext: Context) {
     }
 
     fun stopAndReturnToConnection(context: Context) {
+        val launchContext = context.applicationContext ?: appContext
         mainHandler.post {
             stopOnMain()
-            openConnectionScreen(context)
+            openConnectionScreen(launchContext)
         }
     }
 
@@ -134,15 +137,16 @@ class PlaybackController(private val appContext: Context) {
     }
 
     fun attachPlayerView(playerView: PlayerView) {
-        mainHandler.post {
-            attachedPlayerView = playerView
+        runOnMain {
+            attachedPlayerView?.get()?.takeUnless { it === playerView }?.player = null
+            attachedPlayerView = WeakReference(playerView)
             playerView.player = player
         }
     }
 
     fun detachPlayerView(playerView: PlayerView) {
-        mainHandler.post {
-            if (attachedPlayerView === playerView) {
+        runOnMain {
+            if (attachedPlayerView?.get() === playerView) {
                 playerView.player = null
                 attachedPlayerView = null
             }
@@ -150,7 +154,7 @@ class PlaybackController(private val appContext: Context) {
     }
 
     fun addUiListener(listener: UiListener) {
-        mainHandler.post {
+        runOnMain {
             uiListeners.add(listener)
             listener.onPlaybackStateChanged(state, stateMessage())
         }
@@ -195,10 +199,10 @@ class PlaybackController(private val appContext: Context) {
     ) {
         if (request.url.isBlank()) return
 
-        val existingView = attachedPlayerView
+        val existingView = attachedPlayerView?.get()
         val retainedRetryAttempt = retryAttempt
         stopOnMain()
-        attachedPlayerView = existingView
+        attachedPlayerView = existingView?.let { WeakReference(it) }
         if (!resetRetry) retryAttempt = retainedRetryAttempt
         lastRequest = request
         currentUrl = request.url
@@ -284,7 +288,9 @@ class PlaybackController(private val appContext: Context) {
     private fun scheduleReconnect() {
         if (retryScheduled || lastRequest == null || retryAttempt >= MAX_RETRIES) {
             if (retryAttempt >= MAX_RETRIES) {
-                updateState(PlaybackState.ERROR, currentError ?: "Stream unavailable")
+                val message = currentError ?: "Stream unavailable"
+                releasePlayerOnMain(keepError = true)
+                updateState(PlaybackState.ERROR, message)
             }
             return
         }
@@ -312,9 +318,8 @@ class PlaybackController(private val appContext: Context) {
         val runnable = Runnable {
             retryScheduled = false
             val request = lastRequest ?: return@Runnable
-            val context = attachedPlayerView?.context ?: appContext
             playOnMain(
-                context,
+                appContext,
                 request,
                 resetRetry = false,
                 startPositionMs = resumePositionMs
@@ -332,6 +337,7 @@ class PlaybackController(private val appContext: Context) {
 
         if (isAuthorizationError(error)) {
             Log.w(TAG, "Not retrying HTTP authorization error")
+            releasePlayerOnMain(keepError = true)
             return
         }
         scheduleReconnect()
@@ -348,24 +354,36 @@ class PlaybackController(private val appContext: Context) {
     }
 
     private fun stopOnMain() {
+        releasePlayerOnMain()
+        attachedPlayerView = null
+        updateState(PlaybackState.IDLE, null)
+        Log.i(TAG, "Playback stopped")
+    }
+
+    private fun releasePlayerOnMain(keepError: Boolean = false) {
         retryRunnable?.let(mainHandler::removeCallbacks)
         retryRunnable = null
         retryScheduled = false
         retryAttempt = 0
-        attachedPlayerView?.player = null
-        attachedPlayerView = null
+        attachedPlayerView?.get()?.player = null
         player?.removeListener(playerListener)
         player?.removeAnalyticsListener(analyticsListener)
         player?.release()
         player = null
         lastRequest = null
         currentUrl = null
-        currentError = null
+        if (!keepError) currentError = null
         activeDecoder = null
         videoWidth = 0
         videoHeight = 0
-        updateState(PlaybackState.IDLE, null)
-        Log.i(TAG, "Playback stopped")
+    }
+
+    private fun runOnMain(action: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            action()
+        } else {
+            mainHandler.post(action)
+        }
     }
 
     private fun openPlayerScreen(context: Context) {
@@ -438,6 +456,7 @@ class PlaybackController(private val appContext: Context) {
                 }
                 Player.STATE_ENDED -> {
                     Log.i(TAG, "Playback ended")
+                    releasePlayerOnMain()
                     updateState(PlaybackState.IDLE, null)
                 }
                 Player.STATE_IDLE -> if (state != PlaybackState.IDLE) {
