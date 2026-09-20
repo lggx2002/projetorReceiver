@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Projector Receiver Sender",
+  "version": "0.1.1",
+  "description": "Capture media requests from the current Chrome tab and send them to ProjectorReceiver.",
+  "minimum_chrome_version": "102",
+  "permissions": [
+    "storage",
+    "webRequest"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "action": {
+    "default_title": "Send to Projector",
+    "default_popup": "popup.html"
+  }
+}

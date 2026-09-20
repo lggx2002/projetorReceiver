@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Send to Projector</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+<main>
+  <h1>Send to Projector</h1>
+  <p class="lede">Capture a stream from this tab and play it directly on ProjectorReceiver.</p>
+
+  <label for="projectorUrl">PROJECTOR URL</label>
+  <div class="settings-row">
+    <input id="projectorUrl" type="url" spellcheck="false" placeholder="http://192.168.1.50:8080">
+    <button id="saveButton" type="button">Save</button>
+  </div>
+  <p class="hint">The extension sends the captured URL and playback headers to this address.</p>
+
+  <section class="panel">
+    <div class="section-heading">
+      <strong>Detected streams</strong>
+      <button id="refreshButton" class="secondary small" type="button">Refresh</button>
+    </div>
+    <div id="candidates" class="candidates" aria-live="polite"></div>
+  </section>
+
+  <div class="footer-row">
+    <button id="clearButton" class="secondary small" type="button">Clear detected streams</button>
+    <span id="message" role="status"></span>
+  </div>
+</main>
+<script src="popup.js"></script>
+</body>
+</html>

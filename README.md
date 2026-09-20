@@ -54,6 +54,16 @@ APK output: `app/build/outputs/apk/debug/app-debug.apk`
 
 The same controls are available from the lightweight browser page at the projector URL. The page uses plain HTML, CSS, and JavaScript and is served by the Android app itself.
 
+## Chrome extension
+
+The `chrome-extension/` directory contains a basic unpacked Manifest V3 extension for sending browser media directly to the projector without copying stream URLs or headers by hand.
+
+1. Open `chrome://extensions` in Chrome and enable **Developer mode**.
+2. Choose **Load unpacked** and select the `chrome-extension` directory.
+3. Start a video in Chrome, open the extension popup, save the projector URL, and choose a detected stream.
+
+The extension captures HLS, DASH, and direct video requests with useful request headers, then sends them to `POST /play`. Captured candidates stay in session storage and are not proxied or transcoded by the PC. It requests broad host access because the page and media CDN may use different domains; this is intended for personal home use.
+
 ## HTTP API
 
 - `GET /status` returns state, URL, position, duration, buffered position, decoder, error, and video dimensions.

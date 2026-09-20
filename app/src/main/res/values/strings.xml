@@ -10,7 +10,7 @@
     <string name="remember_auto_connect">Automatically connect on startup</string>
     <string name="auto_connect_help">Use the last saved stream URL when the app opens.</string>
     <string name="status_ready">Ready to connect</string>
-    <string name="status_invalid_url">Enter an RTSP URL to continue.</string>
+    <string name="status_invalid_url">Enter a stream URL to continue.</string>
     <string name="status_invalid_scheme">Enter an RTSP, HLS, DASH, or HTTP(S) stream URL.</string>
     <string name="server_ready">Ready</string>
     <string name="server_starting">Starting control server…</string>

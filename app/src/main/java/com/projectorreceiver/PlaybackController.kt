@@ -187,7 +187,12 @@ class PlaybackController(private val appContext: Context) {
         )
     }
 
-    private fun playOnMain(context: Context, request: PlayRequest, resetRetry: Boolean = true) {
+    private fun playOnMain(
+        context: Context,
+        request: PlayRequest,
+        resetRetry: Boolean = true,
+        startPositionMs: Long? = null
+    ) {
         if (request.url.isBlank()) return
 
         val existingView = attachedPlayerView
@@ -207,7 +212,7 @@ class PlaybackController(private val appContext: Context) {
         val newPlayer = createPlayer()
         player = newPlayer
         if (existingView != null) existingView.player = newPlayer
-        prepare(newPlayer, request)
+        prepare(newPlayer, request, startPositionMs)
         openPlayerScreen(context)
     }
 
@@ -232,7 +237,7 @@ class PlaybackController(private val appContext: Context) {
         return exoPlayer
     }
 
-    private fun prepare(exoPlayer: ExoPlayer, request: PlayRequest) {
+    private fun prepare(exoPlayer: ExoPlayer, request: PlayRequest, startPositionMs: Long? = null) {
         val mediaItem = MediaItem.Builder()
             .setUri(request.url)
             .apply {
@@ -244,7 +249,11 @@ class PlaybackController(private val appContext: Context) {
             .build()
         val mediaSource = createMediaSource(mediaItem, request)
         Log.i(TAG, "Preparing ${normalizeType(request.type)} stream: ${request.url}")
-        exoPlayer.setMediaSource(mediaSource)
+        if (startPositionMs != null) {
+            exoPlayer.setMediaSource(mediaSource, startPositionMs)
+        } else {
+            exoPlayer.setMediaSource(mediaSource)
+        }
         exoPlayer.playWhenReady = true
         exoPlayer.prepare()
     }
@@ -290,11 +299,26 @@ class PlaybackController(private val appContext: Context) {
         updateState(PlaybackState.CONNECTING, "Reconnecting…")
         Log.i(TAG, "Reconnect attempt $retryAttempt scheduled in ${delayMs}ms")
 
+        // Resume on-demand streams after a transient failure. Live streams have no
+        // stable duration and should restart from the live edge instead.
+        val resumePositionMs = player?.let { currentPlayer ->
+            if (currentPlayer.duration > 0 && currentPlayer.currentPosition > 0) {
+                currentPlayer.currentPosition
+            } else {
+                null
+            }
+        }
+
         val runnable = Runnable {
             retryScheduled = false
             val request = lastRequest ?: return@Runnable
             val context = attachedPlayerView?.context ?: appContext
-            playOnMain(context, request, resetRetry = false)
+            playOnMain(
+                context,
+                request,
+                resetRetry = false,
+                startPositionMs = resumePositionMs
+            )
         }
         retryRunnable = runnable
         mainHandler.postDelayed(runnable, delayMs)
